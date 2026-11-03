@@ -14,6 +14,8 @@ import com.android.launcher3.R
 import com.android.launcher3.Utilities
 
 object BcSmartSpaceUtil {
+    private const val TAG = "BcSmartSpaceUtil"
+
     fun getIconDrawable(icon: Icon?, context: Context): Drawable? {
         if (icon == null) return null
         val drawable = icon.loadDrawable(context) ?: return null
@@ -39,22 +41,48 @@ object BcSmartSpaceUtil {
             Log.e(str, "No tap action can be set up")
             return
         }
+        val tag = str ?: TAG
         view.setOnClickListener {
-            runCatching {
-                if (action.intent != null) {
-                    view.context.startActivity(action.intent)
-                } else if (action.pendingIntent != null) {
-                    if (Utilities.ATLEAST_U) {
-                        action.pendingIntent.send(options.toBundle())
-                    } else {
-                        action.pendingIntent.send()
-                    }
-                } else if (action.onClick != null) {
-                    action.onClick.run()
-                }
+            if (performAction(view.context, action, options, tag)) {
                 onClickListener?.onClick(view)
             }
         }
+    }
+
+    /**
+     * Tries the action's intent, then its pending intent, then its click callback. A failure is
+     * logged and the next option is tried, so a stale intent no longer hides a working pending intent.
+     *
+     * @return true if one of them ran, or if the action has nothing to run.
+     */
+    private fun performAction(
+        context: Context,
+        action: SmartspaceAction,
+        options: ActivityOptions,
+        tag: String,
+    ): Boolean {
+        action.intent?.let { intent ->
+            val result = runCatching { context.startActivity(intent) }
+            if (result.isSuccess) return true
+            Log.w(tag, "Failed to start intent $intent", result.exceptionOrNull())
+        }
+        action.pendingIntent?.let { pendingIntent ->
+            val result = runCatching {
+                if (Utilities.ATLEAST_U) {
+                    pendingIntent.send(options.toBundle())
+                } else {
+                    pendingIntent.send()
+                }
+            }
+            if (result.isSuccess) return true
+            Log.w(tag, "Failed to send pending intent", result.exceptionOrNull())
+        }
+        action.onClick?.let { onClick ->
+            val result = runCatching { onClick.run() }
+            if (result.isSuccess) return true
+            Log.w(tag, "Click action failed", result.exceptionOrNull())
+        }
+        return action.intent == null && action.pendingIntent == null && action.onClick == null
     }
 
     fun getOpenCalendarIntent(): Intent {

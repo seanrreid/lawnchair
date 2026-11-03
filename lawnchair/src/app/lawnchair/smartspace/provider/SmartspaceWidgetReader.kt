@@ -117,16 +117,21 @@ class SmartspaceWidgetReader(context: Context) :
 
     private fun parseWeatherData(weatherIcon: Bitmap?, temperatureText: TextView?): SmartspaceTarget? {
         val temperature = temperatureText?.text?.toString()
-        val pendingIntent = (temperatureText?.parent as? View)?.pendingIntent
+        // The click handler is set on an ancestor of the temperature text, not necessarily its direct parent.
+        val pendingIntent = temperatureText?.findPendingIntent()
         val weatherData = parseWeatherData(
             weatherIcon,
             temperature,
             pendingIntent,
         ) ?: return null
-        // Prefer the Pixel Weather app. The Google app's WeatherExportedActivity only opens a weather search.
+        // Prefer the Pixel Weather app. Otherwise use the widget's own pending intent, and only
+        // as a last resort the Google app's WeatherExportedActivity, which just opens a weather search.
         val intent = context.packageManager.getLaunchIntentForPackage(WEATHER_APP_PACKAGE)
             ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            ?: Intent().apply { component = WEATHER_COMPONENT }
+            ?: Intent().apply {
+                component = WEATHER_COMPONENT
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }.takeIf { weatherData.pendingIntent == null }
         return SmartspaceTarget(
             id = "smartspaceWidgetWeather",
             headerAction = SmartspaceAction(
@@ -141,6 +146,8 @@ class SmartspaceWidgetReader(context: Context) :
             featureType = SmartspaceTarget.FeatureType.FEATURE_WEATHER,
         )
     }
+
+    private fun View.findPendingIntent(): PendingIntent? = generateSequence(this) { it.parent as? View }.firstNotNullOfOrNull { it.pendingIntent }
 
     private fun extractBitmap(imageView: ImageView?): Bitmap? {
         return (imageView?.drawable as? BitmapDrawable)?.bitmap
